@@ -16,9 +16,7 @@ Gọi độc lập để test:
     python workers/policy_tool.py
 """
 
-import os
-import sys
-from typing import Optional
+import re
 
 WORKER_NAME = "policy_tool_worker"
 
@@ -78,13 +76,11 @@ def analyze_policy(task: str, chunks: list) -> dict:
         dict with: policy_applies, policy_name, exceptions_found, source, rule, explanation
     """
     task_lower = task.lower()
-    context_text = " ".join([c.get("text", "") for c in chunks]).lower()
-
     # --- Rule-based exception detection ---
     exceptions_found = []
 
     # Exception 1: Flash Sale
-    if "flash sale" in task_lower or "flash sale" in context_text:
+    if "flash sale" in task_lower:
         exceptions_found.append({
             "type": "flash_sale_exception",
             "rule": "Đơn hàng Flash Sale không được hoàn tiền (Điều 3, chính sách v4).",
@@ -107,7 +103,7 @@ def analyze_policy(task: str, chunks: list) -> dict:
             "source": "policy_refund_v4.txt",
         })
 
-    # Determine policy_applies
+    # Base decision before cross-tool enrichment.
     policy_applies = len(exceptions_found) == 0
 
     # Determine which policy version applies (temporal scoping)
@@ -116,6 +112,7 @@ def analyze_policy(task: str, chunks: list) -> dict:
     policy_version_note = ""
     if "31/01" in task_lower or "30/01" in task_lower or "trước 01/02" in task_lower:
         policy_version_note = "Đơn hàng đặt trước 01/02/2026 áp dụng chính sách v3 (không có trong tài liệu hiện tại)."
+        policy_applies = False
 
     # TODO Sprint 2: Gọi LLM để phân tích phức tạp hơn
     # Ví dụ:
@@ -178,25 +175,56 @@ def run(state: dict) -> dict:
     }
 
     try:
-        # Step 1: Nếu chưa có chunks, gọi MCP search_kb
-        if not chunks and needs_tool:
+        # Step 1: optionally call MCP search to enrich context.
+        if needs_tool:
             mcp_result = _call_mcp_tool("search_kb", {"query": task, "top_k": 3})
             state["mcp_tools_used"].append(mcp_result)
             state["history"].append(f"[{WORKER_NAME}] called MCP search_kb")
 
-            if mcp_result.get("output") and mcp_result["output"].get("chunks"):
-                chunks = mcp_result["output"]["chunks"]
+            mcp_chunks = (mcp_result.get("output") or {}).get("chunks", [])
+            if mcp_chunks:
+                existing = {(c.get("source"), c.get("text")) for c in chunks}
+                for chunk in mcp_chunks:
+                    key = (chunk.get("source"), chunk.get("text"))
+                    if key not in existing:
+                        chunks.append(chunk)
                 state["retrieved_chunks"] = chunks
+                state["retrieved_sources"] = sorted({c.get("source", "unknown") for c in chunks})
 
         # Step 2: Phân tích policy
         policy_result = analyze_policy(task, chunks)
-        state["policy_result"] = policy_result
 
-        # Step 3: Nếu cần thêm info từ MCP (e.g., ticket status), gọi get_ticket_info
-        if needs_tool and any(kw in task.lower() for kw in ["ticket", "p1", "jira"]):
-            mcp_result = _call_mcp_tool("get_ticket_info", {"ticket_id": "P1-LATEST"})
-            state["mcp_tools_used"].append(mcp_result)
+        task_lower = task.lower()
+
+        # Step 3: Access control MCP enrichment for multi-hop cases.
+        access_level = None
+        level_match = re.search(r"level\s*(\d)", task_lower)
+        if level_match:
+            access_level = int(level_match.group(1))
+        elif "admin access" in task_lower:
+            access_level = 3
+
+        if needs_tool and access_level is not None:
+            access_call = _call_mcp_tool(
+                "check_access_permission",
+                {
+                    "access_level": access_level,
+                    "requester_role": "contractor" if "contractor" in task_lower else "employee",
+                    "is_emergency": any(k in task_lower for k in ["emergency", "khẩn cấp", "p1", "2am", "2 am"]),
+                },
+            )
+            state["mcp_tools_used"].append(access_call)
+            state["history"].append(f"[{WORKER_NAME}] called MCP check_access_permission")
+            policy_result["access_decision"] = access_call.get("output", {})
+
+        # Step 4: Ticket enrichment for timeline-related questions.
+        if needs_tool and any(kw in task_lower for kw in ["ticket", "p1", "escalation"]):
+            ticket_call = _call_mcp_tool("get_ticket_info", {"ticket_id": "P1-LATEST"})
+            state["mcp_tools_used"].append(ticket_call)
             state["history"].append(f"[{WORKER_NAME}] called MCP get_ticket_info")
+            policy_result["ticket_context"] = ticket_call.get("output", {})
+
+        state["policy_result"] = policy_result
 
         worker_io["output"] = {
             "policy_applies": policy_result["policy_applies"],
