@@ -27,33 +27,67 @@ WORKER_NAME = "policy_tool_worker"
 
 def _call_mcp_tool(tool_name: str, tool_input: dict) -> dict:
     """
-    Gọi MCP tool.
+    Gọi MCP tool qua real MCP protocol (stdio client → mcp_http_server.py).
 
-    Sprint 3 TODO: Implement bằng cách import mcp_server hoặc gọi HTTP.
-
-    Hiện tại: Import trực tiếp từ mcp_server.py (trong-process mock).
+    Dùng mcp.ClientSession để spawn mcp_http_server.py như subprocess,
+    giao tiếp qua stdin/stdout theo MCP protocol.
+    Fallback về mock dispatch_tool() nếu MCP client lỗi.
     """
     from datetime import datetime
+    import json
+
+    timestamp = datetime.now().isoformat()
 
     try:
-        # TODO Sprint 3: Thay bằng real MCP client nếu dùng HTTP server
-        from mcp_server import dispatch_tool
-        result = dispatch_tool(tool_name, tool_input)
+        import asyncio
+        import os
+        from mcp import ClientSession, StdioServerParameters
+        from mcp.client.stdio import stdio_client
+
+        server_script = os.path.join(os.path.dirname(os.path.dirname(__file__)), "mcp_http_server.py")
+
+        async def _async_call():
+            params = StdioServerParameters(command="python", args=[server_script])
+            async with stdio_client(params) as (read, write):
+                async with ClientSession(read, write) as session:
+                    await session.initialize()
+                    result = await session.call_tool(tool_name, tool_input)
+                    # Parse text content từ MCP response
+                    raw = result.content[0].text if result.content else "{}"
+                    return json.loads(raw)
+
+        output = asyncio.run(_async_call())
         return {
             "tool": tool_name,
             "input": tool_input,
-            "output": result,
+            "output": output,
             "error": None,
-            "timestamp": datetime.now().isoformat(),
+            "timestamp": timestamp,
+            "via": "mcp_stdio_client",
         }
+
     except Exception as e:
-        return {
-            "tool": tool_name,
-            "input": tool_input,
-            "output": None,
-            "error": {"code": "MCP_CALL_FAILED", "reason": str(e)},
-            "timestamp": datetime.now().isoformat(),
-        }
+        # Fallback: gọi trực tiếp mock server
+        try:
+            from mcp_server import dispatch_tool
+            output = dispatch_tool(tool_name, tool_input)
+            return {
+                "tool": tool_name,
+                "input": tool_input,
+                "output": output,
+                "error": None,
+                "timestamp": timestamp,
+                "via": "mock_fallback",
+            }
+        except Exception as e2:
+            return {
+                "tool": tool_name,
+                "input": tool_input,
+                "output": None,
+                "error": {"code": "MCP_CALL_FAILED", "reason": str(e2)},
+                "timestamp": timestamp,
+                "via": "error",
+            }
 
 
 # ─────────────────────────────────────────────
