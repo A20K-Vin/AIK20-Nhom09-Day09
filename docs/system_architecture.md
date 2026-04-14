@@ -1,7 +1,7 @@
 # System Architecture — Lab Day 09
 
-**Nhóm:** ___________  
-**Ngày:** ___________  
+**Nhóm:** 09 
+**Ngày:** 14/04/2026  
 **Version:** 1.0
 
 ---
@@ -53,7 +53,7 @@ Retrieval Worker     Policy Tool Worker
 
 **Sơ đồ thực tế của nhóm:**
 
-```
+```mermaid
 graph TD
     %% Định nghĩa màu sắc
     classDef start_end fill:#f9f,stroke:#333,stroke-width:2px;
@@ -169,8 +169,6 @@ graph TD
 
 ## 5. Lý do chọn Supervisor-Worker so với Single Agent (Day 08)
 
-Dựa trên việc đối chiếu codebase của Day 08 (`rag_answer.py`) và Day 09 (`graph.py`, `workers/`), nhóm rút ra các so sánh sau:
-
 | Tiêu chí | Single Agent (Day 08) | Supervisor-Worker (Day 09) |
 |----------|----------------------|--------------------------|
 | **Traceability (Truy vết)** | Chỉ có log text đơn giản. Khi lỗi, khó xác định do Retrieval hay do Reasoning. | **Trace JSON:** `graph.py` lưu toàn bộ `AgentState` vào `artifacts/traces/`. Có thể audit cụ thể từng field: `retrieved_chunks`, `policy_result`, `mcp_tools_used`. |
@@ -186,8 +184,6 @@ Dựa trên việc đối chiếu codebase của Day 08 (`rag_answer.py`) và Da
 ---
 
 ## 6. Giới hạn và điểm cần cải tiến
-
-Dựa trên phân tích mã nguồn hiện tại, hệ thống còn các điểm hạn chế kỹ thuật sau:
 
 1. **Supervisor Intelligence (Định tuyến):**
    - *Hiện tại:* `supervisor_node` đang dùng rule-based dựa trên keyword lists (đọc tại `graph.py:106-111`).
