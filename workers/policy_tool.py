@@ -198,6 +198,19 @@ def run(state: dict) -> dict:
             state["mcp_tools_used"].append(mcp_result)
             state["history"].append(f"[{WORKER_NAME}] called MCP get_ticket_info")
 
+        # Step 4: Gọi check_access_permission nếu task liên quan đến cấp quyền
+        if needs_tool and any(kw in task.lower() for kw in ["level 2", "level 3", "level2", "level3", "quyền", "access level"]):
+            # Xác định level từ task
+            access_level = 3 if any(kw in task.lower() for kw in ["level 3", "level3", "admin access"]) else 2
+            is_emergency = any(kw in task.lower() for kw in ["khẩn cấp", "emergency", "p1", "urgent"])
+            mcp_result = _call_mcp_tool("check_access_permission", {
+                "access_level": access_level,
+                "requester_role": "contractor" if "contractor" in task.lower() else "engineer",
+                "is_emergency": is_emergency,
+            })
+            state["mcp_tools_used"].append(mcp_result)
+            state["history"].append(f"[{WORKER_NAME}] called MCP check_access_permission(level={access_level}, emergency={is_emergency})")
+
         worker_io["output"] = {
             "policy_applies": policy_result["policy_applies"],
             "exceptions_count": len(policy_result.get("exceptions_found", [])),
