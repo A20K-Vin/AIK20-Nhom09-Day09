@@ -126,10 +126,9 @@ def run_grading_questions(questions_file: str = "data/grading_questions.json") -
                     "supervisor_route": result.get("supervisor_route", ""),
                     "route_reason": result.get("route_reason", ""),
                     "workers_called": result.get("workers_called", []),
-                    "mcp_tools_used": [t.get("tool") for t in result.get("mcp_tools_used", [])],
+                    "mcp_tools_used": result.get("mcp_tools_used", []),
                     "confidence": result.get("confidence", 0.0),
                     "hitl_triggered": result.get("hitl_triggered", False),
-                    "latency_ms": result.get("latency_ms"),
                     "timestamp": datetime.now().isoformat(),
                 }
                 print(f"  ✓ route={record['supervisor_route']}, conf={record['confidence']:.2f}")
@@ -145,7 +144,6 @@ def run_grading_questions(questions_file: str = "data/grading_questions.json") -
                     "mcp_tools_used": [],
                     "confidence": 0.0,
                     "hitl_triggered": False,
-                    "latency_ms": None,
                     "timestamp": datetime.now().isoformat(),
                 }
                 print(f"  ✗ ERROR: {e}")
