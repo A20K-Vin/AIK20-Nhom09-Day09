@@ -53,6 +53,7 @@ def run_test_questions(questions_file: str = "data/test_questions.json") -> list
         try:
             result = run_graph(question_text)
             result["question_id"] = q_id
+            result["task"] = question_text
 
             # Save individual trace
             trace_file = save_trace(result, f"artifacts/traces")
@@ -252,7 +253,7 @@ def compare_single_vs_multi(
     # TODO: Load Day 08 results nếu có
     # Nếu không có, dùng baseline giả lập để format
     day08_baseline = {
-        "total_questions": 15,
+        "total_questions": 10,
         "avg_confidence": 0.0,          # TODO: Điền từ Day 08 eval.py
         "avg_latency_ms": 0,            # TODO: Điền từ Day 08
         "abstain_rate": "?",            # TODO: Điền từ Day 08
